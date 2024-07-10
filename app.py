@@ -754,8 +754,11 @@ def download_generated_letter(file_id, template_name):
         doc.save(tmp_file.name)
         tmp_file_path = tmp_file.name
 
+    # Determine the appropriate name field
+    name_field = context.get("NAME", context.get("SCHOOL_NAME", "Document"))
+
     return send_file(tmp_file_path, as_attachment=True,
-                     download_name=f"{template_name.replace('_', ' ').title()} for {context['NAME']}.docx")
+                     download_name=f"{template_name.replace('_', ' ').title()} for {name_field.title()}.docx")
 
 
 if __name__ == "__main__":
