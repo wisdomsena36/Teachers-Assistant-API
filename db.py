@@ -69,8 +69,8 @@ class DB:
                         "first_name": user.first_name,
                         "last_name": user.last_name,
                         "phone_number": user.phone_number,
-                        "gender": user.gender,
-                        "is_admin": user.is_admin}
+                        "gender": user.gender
+                        }
             return None
         finally:
             session.close()
@@ -86,8 +86,7 @@ class DB:
                         "first_name": user.first_name,
                         "last_name": user.last_name,
                         "phone_number": user.phone_number,
-                        "gender": user.gender,
-                        "is_admin": user.is_admin
+                        "gender": user.gender
                         }
             return None
         finally:

@@ -427,6 +427,89 @@ def get_user() -> tuple[Response, int]:
     return jsonify(user), 200
 
 
+@app.route('/admin/letters', methods=['GET'])
+def get_all_letters():
+    admin_cookie = request.cookies.get("session_id", None)
+    admin_user = AUTH.get_user_from_session_id(admin_cookie)
+    if admin_user is None or admin_user.email != ADMIN_EMAIL:
+        abort(403, description="Admin privileges required")
+
+    letters = dbs.get_all_letters()
+    letter_list = [
+        {
+            "id": letter.id,
+            "user_id": letter.user_id,
+            "user_first_name": letter.user_first_name,
+            "user_last_name": letter.user_last_name,
+            "type": letter.type,
+            "content": letter.content,
+            "generated_at": letter.generated_at
+        }
+        for letter in letters
+    ]
+
+    return jsonify({"letters": letter_list})
+
+
+@app.route('/admin/letter', methods=['POST'], strict_slashes=False)
+def get_one_user_letters() -> tuple[Response, int]:
+    """ POST /admin/letters """
+    global user
+    admin_cookie = request.cookies.get("session_id", None)
+    admin_user = AUTH.get_user_from_session_id(admin_cookie)
+    if admin_user is None or admin_user.email != ADMIN_EMAIL:
+        abort(403, description="Admin privileges required")
+
+    data = request.get_json()
+    user_id = data.get("id")
+    last_name = data.get("last_name")
+
+    if not user_id and not last_name:
+        return jsonify({"message": "Please provide a user ID or last name"}), 400
+
+    if user_id:
+        user = dbs.get_letters_by_user_by_id(user_id)
+    elif last_name:
+        user = dbs.get_letters_by_user_by_last_name(last_name)
+
+    if user is None:
+        return jsonify({"message": "User not found"}), 404
+
+    letters = dbs.get_letters_by_user(user.id)
+    letter_list = [
+        {
+            "id": letter.id,
+            "user_id": letter.user_id,
+            "user_first_name": letter.user_first_name,
+            "user_last_name": letter.user_last_name,
+            "type": letter.type,
+            "content": letter.content,
+            "generated_at": letter.generated_at,
+            "filename": letter.filename
+        }
+        for letter in letters
+    ]
+
+    return jsonify({"letters": letter_list}), 200
+
+
+@app.route('/admin/letter/<letter_id>', methods=['DELETE'], strict_slashes=False)
+def delete_letter(letter_id: str) -> tuple[Response, int]:
+    """ DELETE /admin/letter/<letter_id> """
+    admin_cookie = request.cookies.get("session_id", None)
+    admin_user = AUTH.get_user_from_session_id(admin_cookie)
+    if admin_user is None or admin_user.email != ADMIN_EMAIL:
+        abort(403, description="Admin privileges required")
+
+    try:
+        dbs.delete_letter(letter_id)
+        return jsonify({"message": "Letter deleted successfully"}), 200
+    except NoResultFound:
+        return jsonify({"message": "Letter not found"}), 404
+    except Exception as e:
+        return jsonify({"message": str(e)}), 500
+
+
 @app.route('/generate_letter', methods=['POST'])
 def generate_letter():
     user_cookie = request.cookies.get("session_id", None)
