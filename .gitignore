@@ -115,6 +115,7 @@ cython_debug/
 
 # PyCharm
 .idea/
+.idea
 
 # Python virtual environment
 .vscode/
