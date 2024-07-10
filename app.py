@@ -239,5 +239,45 @@ def admin_login():
         return jsonify({"message": "Invalid credentials"}), 401
 
 
+@app.route('/admin/users', methods=['GET'], strict_slashes=False)
+def get_all_users() -> tuple[Response, int]:
+    """ GET /admin/users """
+    admin_cookie = request.cookies.get("session_id", None)
+    admin_user = AUTH.get_user_from_session_id(admin_cookie)
+    if admin_user is None or admin_user.email != ADMIN_EMAIL:
+        abort(403, description="Admin privileges required")
+
+    users = AUTH.get_all_users()
+    return jsonify(users), 200
+
+
+@app.route('/admin/user', methods=['POST'], strict_slashes=False)
+def get_user() -> tuple[Response, int]:
+    """ POST /admin/user """
+    global user
+    admin_cookie = request.cookies.get("session_id", None)
+    admin_user = AUTH.get_user_from_session_id(admin_cookie)
+    if admin_user is None or admin_user.email != ADMIN_EMAIL:
+        abort(403, description="Admin privileges required")
+
+    data = request.get_json()
+
+    user_id = data.get("id")
+    last_name = data.get("last_name")
+
+    if not user_id and not last_name:
+        return jsonify({"message": "Please provide a user ID or last name"}), 400
+
+    if user_id:
+        user = dbs.get_user_by_id(user_id)
+    elif last_name:
+        user = dbs.get_user_by_last_name(last_name)
+
+    if user is None:
+        return jsonify({"message": "User not found"}), 404
+
+    return jsonify(user), 200
+
+
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=5000, debug=True)
