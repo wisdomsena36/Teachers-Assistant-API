@@ -18,6 +18,9 @@ app.SECRET_KEY = os.getenv('SECRET_KEY')
 
 SESSION_DURATION = timedelta(hours=3)
 
+ADMIN_EMAIL = os.getenv('ADMIN_EMAIL')
+ADMIN_PASSWORD = os.getenv('ADMIN_PASSWORD')
+
 
 @app.errorhandler(CustomError)
 def handle_custom_error(error):
@@ -211,6 +214,29 @@ def reset_password() -> tuple[Response, int]:
 
     except ValueError as e:
         raise CustomError(str(e), 403)
+
+
+@app.route('/admin/login', methods=['POST'], strict_slashes=False)
+def admin_login():
+    """ POST /admin/login """
+    data = request.get_json()
+    if not data:
+        return jsonify({"message": "Invalid JSON data received"}), 400
+
+    email = data.get("email")
+    password = data.get("password")
+
+    if email == ADMIN_EMAIL and password == ADMIN_PASSWORD:
+        session_id = AUTH.create_session(email)  # Assuming AUTH is properly defined
+        if session_id:
+            message = {"email": email, "message": "Logged in successfully as Admin"}
+            response = jsonify(message)
+            response.set_cookie("session_id", session_id)
+            return response
+        else:
+            return jsonify({"message": "Failed to create session"}), 500
+    else:
+        return jsonify({"message": "Invalid credentials"}), 401
 
 
 if __name__ == "__main__":
