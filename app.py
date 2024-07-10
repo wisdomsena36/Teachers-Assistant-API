@@ -1,7 +1,7 @@
 import os
 from datetime import timedelta
 
-from flask import Flask, Response, jsonify, request
+from flask import Flask, Response, jsonify, request, abort, redirect
 from dotenv import load_dotenv
 from werkzeug.exceptions import HTTPException
 
@@ -90,3 +90,40 @@ def verify_email() -> tuple[Response, int]:
     except ValueError as e:
         raise CustomError(str(e), 403)
 
+
+@app.route('/login', methods=['POST'], strict_slashes=False)
+def login() -> Response:
+    """ POST /login """
+    data = request.get_json()
+    email = data.get("email")
+    password = data.get("password")
+
+    try:
+        valid_user = AUTH.valid_login(email, password)
+
+        if not valid_user:
+            abort(401, description="Invalid credentials")
+
+        session_id = AUTH.create_session(email)
+        message = {"email": email, "message": "Logged in successfully"}
+        response = jsonify(message)
+        response.set_cookie("session_id", session_id)
+        return response
+
+    except ValueError as e:
+        raise CustomError(str(e), 403)
+
+
+@app.route('/logout', methods=['DELETE'], strict_slashes=False)
+def logout():
+    """ DELETE /logout """
+    user_cookie = request.cookies.get("session_id", None)
+    user = AUTH.get_user_from_session_id(user_cookie)
+    if user_cookie is None or user is None:
+        abort(403, description="Session not found or user not authenticated")
+    AUTH.destroy_session(user.id)
+    return redirect('/')
+
+
+if __name__ == "__main__":
+    app.run(host="0.0.0.0", port=5000, debug=True)
