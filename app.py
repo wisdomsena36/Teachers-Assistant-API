@@ -1,7 +1,10 @@
 import os
+import tempfile
+import uuid
 from datetime import timedelta, datetime
 
-from flask import Flask, Response, jsonify, request, abort, redirect
+from docxtpl import DocxTemplate
+from flask import Flask, Response, jsonify, request, abort, redirect, json, url_for, send_file
 from dotenv import load_dotenv
 from werkzeug.exceptions import HTTPException
 
@@ -21,6 +24,8 @@ SESSION_DURATION = timedelta(hours=3)
 ADMIN_EMAIL = os.getenv('ADMIN_EMAIL')
 ADMIN_PASSWORD = os.getenv('ADMIN_PASSWORD')
 
+# In-memory storage for contexts
+context_storage = {}
 
 @app.errorhandler(CustomError)
 def handle_custom_error(error):
@@ -277,6 +282,147 @@ def get_user() -> tuple[Response, int]:
         return jsonify({"message": "User not found"}), 404
 
     return jsonify(user), 200
+
+
+@app.route('/generate_letter', methods=['POST'])
+def generate_letter():
+    user_cookie = request.cookies.get("session_id", None)
+    if user_cookie is None:
+        return jsonify({"message": "Session ID not found"}), 403
+
+    user = AUTH.get_user_from_session_id(user_cookie)
+    if user is None:
+        return jsonify({"message": "User not authenticated"}), 403
+
+    data = request.get_json()
+    letter_type = data.get('letter_type')
+
+    required_keys_map = {
+        'maternity_leave_letter': ['name', 'staffid', 'phone', 'registeredno', 'school', 'address', 'district_town',
+                                   'address_town', 'district', 'date_on_letter'],
+        'upgrading_application_letter': ['name', 'staffid', 'phone', 'registeredno', 'school', 'address',
+                                         'district_town',
+                                         'address_town', 'district', 'date_on_letter', 'years_in_service', 'program',
+                                         'year_completed', 'current_rank', 'next_rank'],
+        'acceptance_of_appointment_letter': ['name', 'reference', 'phone', 'school', 'address', 'region_town',
+                                             'address_town', 'region', 'date_on_letter', 'date_on_appointment_letter'],
+        'transfer_or_reposting_letter': ['name', 'staffid', 'phone', 'registeredno', 'school', 'address',
+                                         'district_town',
+                                         'address_town', 'district', 'date_on_letter', 'years_in_school', 'reason',
+                                         'new_school'],
+        'release_transfer_letter': ['name', 'staffid', 'phone', 'registeredno', 'school', 'address', 'district_town',
+                                    'address_town', 'district', 'date_on_letter', 'years_in_school', 'reason',
+                                    'new_dist_reg', 'curr_dist_reg', 'level_of_transfer'],
+        'salary_reactivation_letter': ['name', 'staffid', 'phone', 'registeredno', 'school', 'address', 'district_town',
+                                       'address_town', 'district', 'date_on_letter', 'month_or_s', 'circuit']
+    }
+
+    if letter_type not in required_keys_map:
+        return jsonify({"error": "Invalid letter type"}), 400
+
+    required_keys = required_keys_map[letter_type]
+
+    if not all(key in data for key in required_keys):
+        return jsonify({"error": "Missing one or more required parameters"}), 400
+
+    original_date = datetime.strptime(data['date_on_letter'], "%Y-%m-%d")
+    formatted_date_str = original_date.strftime("%B %d, %Y")
+
+    context = {}
+    if letter_type == 'acceptance_of_appointment_letter':
+        context = {
+            "NAME": data['name'].upper(),
+            "SCHOOLNAME": data['school'],
+            "ADDRESS": data['address'],
+            "ADDRESSTOWN": data['address_town'].upper(),
+            "TOWN": data['region_town'].upper(),
+            "PHONE": f"({data['phone']})",
+            "DATEONLETTER": formatted_date_str.upper()
+        }
+    else:
+        context = {
+            "NAME": data['name'].upper(),
+            "SCHOOLNAME": data['school'],
+            "ADDRESS": data['address'],
+            "ADDRESSTOWN": data['address_town'].upper(),
+            "TOWN": data['district_town'].upper(),
+            "STAFFID": data['staffid'],
+            "REGISTERNO": data['registeredno'],
+            "PHONE": f"({data['phone']})",
+            "DATEONLETTER": formatted_date_str.upper(),
+            "DISTRICT": data['district'].upper()
+        }
+
+    if letter_type == 'upgrading_application_letter':
+        context.update({
+            "NUMBEROFYEARSINSERVICE": data['years_in_service'],
+            "NAMEOFPROGRAM": data['program'].title(),
+            "YEARCOMPLETED": data['year_completed'],
+            "CURRENTRANK": data['current_rank'],
+            "NEXTRANK": data['next_rank'],
+            "NEXTRANKTITLE": data['next_rank'].upper()
+        })
+
+    elif letter_type == 'acceptance_of_appointment_letter':
+        appointment_date_original = datetime.strptime(data['date_on_appointment_letter'], "%Y-%m-%d")
+        appointment_date_formatted = appointment_date_original.strftime("%B %d, %Y")
+        context.update({
+            "REFERENCEAPPOINTMENTLETTER": data['reference'],
+            "DATEONTHEAPPOINTMENTLETTER": appointment_date_formatted.title(),
+            "REGION": data['region'].upper()
+        })
+
+    elif letter_type == 'transfer_or_reposting_letter':
+        context.update({
+            "NUMBEROFYEARSSERVED": data['years_in_school'],
+            "NEWSCHOOLNAME": data['new_school'].title(),
+            "REASON": data['reason'].lower()
+        })
+
+    elif letter_type == 'release_transfer_letter':
+        context.update({
+            "NUMBEROFYEARSSERVED": data['years_in_school'],
+            "NEWDISTORREG": data['new_dist_reg'].title(),
+            "CURRENTDISTORREG": data['curr_dist_reg'].title(),
+            "LEVELOFTRANSFER": data['level_of_transfer'].title(),
+            "REASON": data['reason'].lower()
+        })
+
+    elif letter_type == 'salary_reactivation_letter':
+        context.update({
+            "YOURDISTRICT": data['district'].title(),
+            "MONTHORS": data['month_or_s'],
+            "CIRCUITNAME": data['circuit'].title()
+        })
+
+    file_id = str(uuid.uuid4())
+    context_storage[file_id] = context
+
+    filename = f"{letter_type.replace('_', ' ').title()} for {context['NAME']}.docx"
+    letter_content = json.dumps(context)
+    new_letter = dbs.add_letter(user_id=user.id, type=letter_type, content=letter_content, filename=filename)
+
+    download_url = url_for('download_generated_letter', file_id=file_id, template_name=letter_type, _external=True)
+    return jsonify(
+        {"message": f"{letter_type.replace('_', ' ').title()} generated successfully", "download_url": download_url})
+
+
+@app.route('/download_generated_letter/<file_id>/<template_name>', methods=['GET'])
+def download_generated_letter(file_id, template_name):
+    if file_id not in context_storage:
+        return jsonify({"error": "Invalid file ID"}), 404
+
+    context = context_storage.pop(file_id)
+    template_path = f"letter_templates/{template_name}.docx"
+    doc = DocxTemplate(template_path)
+    doc.render(context)
+
+    with tempfile.NamedTemporaryFile(delete=False, suffix=".docx") as tmp_file:
+        doc.save(tmp_file.name)
+        tmp_file_path = tmp_file.name
+
+    return send_file(tmp_file_path, as_attachment=True,
+                     download_name=f"{template_name.replace('_', ' ').title()} for {context['NAME']}.docx")
 
 
 if __name__ == "__main__":
