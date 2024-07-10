@@ -1,5 +1,5 @@
 import os
-from datetime import timedelta
+from datetime import timedelta, datetime
 
 from flask import Flask, Response, jsonify, request, abort, redirect
 from dotenv import load_dotenv
@@ -123,6 +123,56 @@ def logout():
         abort(403, description="Session not found or user not authenticated")
     AUTH.destroy_session(user.id)
     return redirect('/')
+
+
+@app.route('/profile', methods=['GET'], strict_slashes=False)
+def profile() -> Response:
+    """ GET /profile """
+    user_cookie = request.cookies.get("session_id", None)
+    if user_cookie is None:
+        abort(403, description="Session not found")
+    user = AUTH.get_user_from_session_id(user_cookie)
+    if user is None:
+        abort(403, description="User not authenticated")
+    if datetime.utcnow() - user.last_login > SESSION_DURATION:
+        AUTH.destroy_session(user.id)
+        abort(403, description="Session expired")
+    return jsonify({
+        "email": user.email,
+        "first_name": user.first_name,
+        "last_name": user.last_name,
+        "phone_number": user.phone_number,
+        "gender": user.gender
+    })
+
+
+@app.route('/profile', methods=['PUT'], strict_slashes=False)
+def update_profile() -> tuple[Response, int]:
+    """ PUT /profile """
+    user_cookie = request.cookies.get("session_id", None)
+    if user_cookie is None:
+        abort(403, description="Session not found")
+    user = AUTH.get_user_from_session_id(user_cookie)
+    if user is None:
+        abort(403, description="User not authenticated")
+
+    data = request.get_json()
+    first_name = data.get("first_name")
+    last_name = data.get("last_name")
+    phone_number = data.get("phone_number")
+    gender = data.get("gender")
+
+    try:
+        if not all([first_name, last_name, phone_number, gender]):
+            return jsonify({
+                "message": "All field required.(first_name, last_name, phone_number, gender)"
+            }), 400
+        AUTH.update_user(user.id, first_name=first_name, last_name=last_name, phone_number=phone_number, gender=gender)
+        return jsonify({
+            "message": "Profile updated successfully"
+        }), 200
+    except ValueError as e:
+        raise CustomError(str(e), 400)
 
 
 if __name__ == "__main__":
