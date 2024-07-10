@@ -277,7 +277,7 @@ def get_user_letter(letter_id):
         return jsonify({"message": "Letter not found"}), 404
 
 
-@app.route('/download_sava_letter/<letter_id>', methods=['GET'])
+@app.route('/download_save_letter/<letter_id>', methods=['GET'])
 def download_sava_letter(letter_id):
     user_cookie = request.cookies.get("session_id", None)
     if user_cookie is None:
