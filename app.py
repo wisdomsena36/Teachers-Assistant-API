@@ -175,5 +175,43 @@ def update_profile() -> tuple[Response, int]:
         raise CustomError(str(e), 400)
 
 
+@app.route('/forgot_password', methods=['POST'], strict_slashes=False)
+def forgot_password() -> tuple[Response, int]:
+    """ POST /forgot_password """
+    data = request.get_json()
+    email = data.get("email")
+
+    try:
+        AUTH.forgot_password(email)
+        return jsonify({
+            "message": "Reset code sent to your email"
+        }), 200
+    except ValueError as e:
+        raise CustomError(str(e), 404)
+
+
+@app.route('/reset_password', methods=['POST'], strict_slashes=False)
+def reset_password() -> tuple[Response, int]:
+    """ POST /reset_password """
+    data = request.get_json()
+    email = data.get("email")
+    reset_code = data.get("reset_code")
+    new_password = data.get("new_password")
+
+    try:
+        if not all([email, reset_code, new_password]):
+            return jsonify({
+                "message": "All field required.(email, reset_code, new_password)"
+            }), 400
+
+        AUTH.reset_password_with_code(email, reset_code, new_password)
+        return jsonify({
+            "message": "Password updated successfully"
+        }), 200
+
+    except ValueError as e:
+        raise CustomError(str(e), 403)
+
+
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=5000, debug=True)
