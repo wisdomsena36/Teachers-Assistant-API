@@ -6,6 +6,7 @@ from datetime import timedelta, datetime
 from docxtpl import DocxTemplate
 from flask import Flask, Response, jsonify, request, abort, redirect, json, url_for, send_file
 from dotenv import load_dotenv
+from g4f.client import Client
 from sqlalchemy.exc import NoResultFound
 from werkzeug.exceptions import HTTPException
 
@@ -508,6 +509,112 @@ def delete_letter(letter_id: str) -> tuple[Response, int]:
         return jsonify({"message": "Letter not found"}), 404
     except Exception as e:
         return jsonify({"message": str(e)}), 500
+
+
+@app.route('/generate_examination_questions', methods=['POST'])
+def generate_examination_questions():
+    user_cookie = request.cookies.get("session_id", None)
+    if user_cookie is None:
+        return jsonify({"message": "Session ID not found"}), 403
+
+    user = AUTH.get_user_from_session_id(user_cookie)
+    if user is None:
+        return jsonify({"message": "User not authenticated"}), 403
+
+    data = request.get_json()
+
+    required_keys = [
+        'school_name', 'term', 'subject', 'class', 'duration', 'topics_taught', 'num_of_mul_choice_ques',
+        'num_of_subjective_ques', 'num_of_sub_ques_to_ans'
+    ]
+
+    if not all(key in data for key in required_keys):
+        return jsonify({"error": "Missing one or more required parameters"}), 400
+
+    school_name = data['school_name']
+    term = data['term']
+    subject = data['subject']
+    level = data['class']
+    duration = data['duration']
+    topics_taught = data['topics_taught']
+    num_of_mul_choice_ques = data['num_of_mul_choice_ques']
+    num_of_subjective_ques = data['num_of_subjective_ques']
+    num_of_sub_ques_to_ans = data['num_of_sub_ques_to_ans']
+
+    client = Client()
+
+    mul_ques_response = client.chat.completions.create(
+        model="gpt-3.5-turbo",
+        messages=[
+            {"role": "user", "content": (
+                f"Generate {num_of_mul_choice_ques} multiple choice questions on {subject} for "
+                f"{level} learners in the Ghana curriculum covering these topics: {topics_taught}. "
+                f"Provide only the questions."
+            )}
+        ]
+    )
+
+    subjective_ques_response = client.chat.completions.create(
+        model="gpt-3.5-turbo",
+        messages=[
+            {"role": "user", "content": (
+                f"Generate {num_of_subjective_ques} subjective questions on {subject} for "
+                f"{level} learners in the Ghana curriculum covering these topics: {topics_taught}. "
+                f"Provide only the questions."
+            )}
+        ]
+    )
+
+    mul_choice_ques_ans_response = client.chat.completions.create(
+        model="gpt-3.5-turbo",
+        messages=[
+            {"role": "user", "content": (
+                f"Provide answers with their respective numbers for the following multiple choice questions: "
+                f"{mul_ques_response.choices[0].message.content}. "
+                f"Provide only the answers."
+            )}
+        ]
+    )
+
+    sub_ques_ans_response = client.chat.completions.create(
+        model="gpt-3.5-turbo",
+        messages=[
+            {"role": "user", "content": (
+                f"Provide answers with their respective numbers for the following subjective questions: "
+                f"{subjective_ques_response.choices[0].message.content}. "
+                f"Provide only the answers."
+            )}
+        ]
+    )
+
+    context = {
+        "SCHOOL_NAME": school_name,
+        "TERM": term,
+        "SUBJECT": subject,
+        "CLASS": level,
+        "DURATION": duration,
+        "MUL_CHOICE_QUES": mul_ques_response.choices[0].message.content,
+        "NUM_OF_QUES_TO_ANS": num_of_sub_ques_to_ans,
+        "SUBJECTIVE_QUESTIONS": subjective_ques_response.choices[0].message.content,
+        "MARKING_SCHEME_SEC_A": mul_choice_ques_ans_response.choices[0].message.content,
+        "MARKING_SCHEME_SEC_B": sub_ques_ans_response.choices[0].message.content,
+    }
+
+    # Generate filename
+    filename = f"{context['CLASS']}_{context['SUBJECT']}_Examination_Questions_for_{context['SCHOOL_NAME']}.docx"
+
+    # Save context and filename to database
+    letter_content = json.dumps(context)
+    new_letter = dbs.add_letter(user_id=user.id, type='examination_questions', content=letter_content, filename=filename)
+
+    # Generate file ID for download
+    file_id = str(uuid.uuid4())
+    context_storage[file_id] = context
+
+    # Generate download URL
+    download_url = url_for('download_generated_letter', file_id=file_id, template_name='examination_questions', _external=True)
+
+    return jsonify({"message": "Examination document created successfully", "download_url": download_url})
 
 
 @app.route('/generate_letter', methods=['POST'])
