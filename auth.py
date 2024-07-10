@@ -1,3 +1,4 @@
+import os
 import smtplib
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
@@ -10,15 +11,18 @@ from user import User
 from sqlalchemy.orm.exc import NoResultFound
 from uuid import uuid4
 from datetime import datetime
+from dotenv import load_dotenv
+
+load_dotenv()
 
 
 class Auth:
     def __init__(self):
         self._db = DB()
-        self.smtp_server = 'smtp.gmail.com'
-        self.smtp_port = 465
-        self.smtp_username = 'noreplyteachersassistant@gmail.com'
-        self.smtp_password = 'qdvf uyru zskl fhhs'
+        self.SMTP_SERVER = os.getenv('SMTP_SERVER')
+        self.SMTP_PORT = 465
+        self.SMTP_EMAIL = os.getenv('SMTP_EMAIL')
+        self.SMTP_PASSWORD = os.getenv('SMTP_PASSWORD')
 
     def _hash_password(self, password: str) -> str:
         return hashpw(password.encode('utf-8'), gensalt()).decode('utf-8')
@@ -33,14 +37,14 @@ class Auth:
     def _send_email(self, to_email: str, subject: str, body_html: str):
         """ Sends an email using SMTP """
         msg = MIMEMultipart()
-        msg['From'] = self.smtp_username
+        msg['From'] = self.SMTP_EMAIL
         msg['To'] = to_email
         msg['Subject'] = subject
         msg.attach(MIMEText(body_html, 'html'))
 
         try:
-            with smtplib.SMTP_SSL(self.smtp_server, self.smtp_port) as server:
-                server.login(self.smtp_username, self.smtp_password)
+            with smtplib.SMTP_SSL(self.SMTP_SERVER, self.SMTP_PORT) as server:
+                server.login(self.SMTP_EMAIL, self.SMTP_PASSWORD)
                 server.send_message(msg)
         except Exception as e:
             raise ValueError(f"Failed to send email: {str(e)}")
