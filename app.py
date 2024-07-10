@@ -6,6 +6,7 @@ from datetime import timedelta, datetime
 from docxtpl import DocxTemplate
 from flask import Flask, Response, jsonify, request, abort, redirect, json, url_for, send_file
 from dotenv import load_dotenv
+from sqlalchemy.exc import NoResultFound
 from werkzeug.exceptions import HTTPException
 
 from auth import Auth
@@ -26,6 +27,7 @@ ADMIN_PASSWORD = os.getenv('ADMIN_PASSWORD')
 
 # In-memory storage for contexts
 context_storage = {}
+
 
 @app.errorhandler(CustomError)
 def handle_custom_error(error):
@@ -219,6 +221,147 @@ def reset_password() -> tuple[Response, int]:
 
     except ValueError as e:
         raise CustomError(str(e), 403)
+
+
+@app.route('/user_letters', methods=['GET'])
+def get_user_letters():
+    user_cookie = request.cookies.get("session_id", None)
+    if user_cookie is None:
+        return jsonify({"message": "Session ID not found"}), 403
+
+    user = AUTH.get_user_from_session_id(user_cookie)
+    if user is None:
+        return jsonify({"message": "User not authenticated"}), 403
+
+    letters = dbs.get_letters_by_user(user.id)
+    letter_list = [
+        {
+            "id": letter.id,
+            "type": letter.type,
+            "content": letter.content,
+            "generated_at": letter.generated_at,
+            "filename": letter.filename
+        }
+        for letter in letters
+    ]
+
+    return jsonify({"letters": letter_list})
+
+
+@app.route('/user_letters/<letter_id>', methods=['GET'])
+def get_user_letter(letter_id):
+    user_cookie = request.cookies.get("session_id", None)
+    if user_cookie is None:
+        return jsonify({"message": "Session ID not found"}), 403
+
+    user = AUTH.get_user_from_session_id(user_cookie)
+    if user is None:
+        return jsonify({"message": "User not authenticated"}), 403
+
+    try:
+        letter = dbs.get_letter(letter_id)
+        if letter.user_id != user.id:
+            return jsonify({"message": "User not authorized to access this letter"}), 403
+
+        letter_data = {
+            "id": letter.id,
+            "type": letter.type,
+            "content": letter.content,
+            "generated_at": letter.generated_at,
+            "filename": letter.filename
+        }
+
+        return jsonify({"letter": letter_data})
+
+    except NoResultFound:
+        return jsonify({"message": "Letter not found"}), 404
+
+
+@app.route('/download_sava_letter/<letter_id>', methods=['GET'])
+def download_sava_letter(letter_id):
+    user_cookie = request.cookies.get("session_id", None)
+    if user_cookie is None:
+        return jsonify({"message": "Session ID not found"}), 403
+
+    user = AUTH.get_user_from_session_id(user_cookie)
+    if user is None:
+        return jsonify({"message": "User not authenticated"}), 403
+
+    try:
+        letter = dbs.get_letter(letter_id)
+    except NoResultFound:
+        return jsonify({"message": "Letter not found"}), 404
+
+    if letter.user_id != user.id and not user.is_admin:
+        return jsonify({"message": "User not authorized to download this letter"}), 403
+
+    context = json.loads(letter.content)
+    file_id = str(uuid.uuid4())
+    context_storage[file_id] = context
+
+    download_url = url_for('download_generated_letter', file_id=file_id, template_name=letter.type, _external=True)
+    return jsonify({"message": "Document ready for download", "download_url": download_url})
+
+
+@app.route('/letter/<letter_id>', methods=['DELETE'], strict_slashes=False)
+def delete_user_letter(letter_id: str) -> tuple[Response, int]:
+    """ DELETE /letter/<letter_id> """
+    user_cookie = request.cookies.get("session_id", None)
+    if user_cookie is None:
+        return jsonify({"message": "Session ID not found"}), 403
+
+    userr = AUTH.get_user_from_session_id(user_cookie)
+    if userr is None:
+        return jsonify({"message": "User not authenticated"}), 403
+
+    try:
+        letter = dbs.get_letter(letter_id)
+    except NoResultFound:
+        return jsonify({"message": "Letter not found"}), 404
+
+    if letter.user_id != userr.id:
+        return jsonify({"message": "User not authorized to delete this letter"}), 403
+
+    try:
+        dbs.delete_letter(letter_id)
+        return jsonify({"message": "Letter deleted successfully"}), 200
+    except Exception as e:
+        return jsonify({"message": str(e)}), 500
+
+
+@app.route('/update_letter/<letter_id>', methods=['PUT'])
+def update_letter(letter_id):
+    user_cookie = request.cookies.get("session_id", None)
+    if user_cookie is None:
+        return jsonify({"message": "Session ID not found"}), 403
+
+    user = AUTH.get_user_from_session_id(user_cookie)
+    if user is None:
+        return jsonify({"message": "User not authenticated"}), 403
+
+    data = request.get_json()
+    if not data:
+        return jsonify({"error": "No data provided"}), 400
+
+    try:
+        letter = dbs.get_letter(letter_id)
+    except NoResultFound:
+        return jsonify({"message": "Letter not found"}), 404
+
+    if letter.user_id != user.id and not user.is_admin:
+        return jsonify({"message": "User not authorized to update this letter"}), 403
+
+    allowed_fields = ['content', 'filename', 'type']
+    update_data = {key: value for key, value in data.items() if key in allowed_fields}
+
+    if not update_data:
+        return jsonify({"error": "No valid fields provided for update"}), 400
+
+    try:
+        dbs.update_letter(letter_id, **update_data)
+        return jsonify({"message": "Letter updated successfully"})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
 
 
 @app.route('/admin/login', methods=['POST'], strict_slashes=False)
