@@ -267,7 +267,7 @@ The Teachers Assistant API is structured with a focus on modularity and scalabil
       "name": "Jane Doe",
       "staffid": "12345",
       "phone": "1234567890",
-      "registeredno": "987654
+      "registeredno": "987654"
 
 ",
       "school": "Example School",
