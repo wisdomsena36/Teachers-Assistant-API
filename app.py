@@ -5,11 +5,9 @@ import json
 from datetime import timedelta, datetime
 import google.generativeai as genai
 
-import requests
 from docxtpl import DocxTemplate
 from flask import Flask, Response, jsonify, request, abort, redirect, json, url_for, send_file
 from dotenv import load_dotenv
-from g4f.client import Client
 from sqlalchemy.exc import NoResultFound
 from werkzeug.exceptions import HTTPException
 
