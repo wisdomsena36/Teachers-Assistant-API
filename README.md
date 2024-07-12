@@ -449,7 +449,7 @@ The Teachers Assistant API is structured with a focus on modularity and scalabil
 
 - **Database Development**: SQLAlchemy
 - **Backend Development**: Python, Flask Web Framework
-- **Third-Party Services**: GPT-4FREE, Microsoft Word API
+- **Third-Party Services**: Gemini API, Microsoft Word API
 
 ## Meet the Team
 
